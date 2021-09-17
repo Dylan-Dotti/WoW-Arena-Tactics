@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using UnityEngine;
 
 public class AStarPathfinder<T> where T : IAStarNode
 {
@@ -13,65 +14,78 @@ public class AStarPathfinder<T> where T : IAStarNode
 
     public IReadOnlyList<T> GetPath(T startNode, T endNode)
     {
-        int compareFunc(NodeWrapper node1, NodeWrapper node2) =>
-            node1.FCost.Value.CompareTo(node2.FCost.Value);
-        var openList = new PriorityQueue<NodeWrapper>(compareFunc);
-        var closedList = new List<NodeWrapper>();
-        openList.Enqueue(new NodeWrapper(startNode)
-        {
-            GCost = 0,
-            HCost = grid.GetDistance(startNode, endNode)
-        });
+        Debug.Log("Begining pathfinding");
+        NodePropertiesMap nodeProps = new NodePropertiesMap();
+        int compareFunc(T node1, T node2) => nodeProps.GetProps(node1).FCost
+            .CompareTo(nodeProps.GetProps(node2).FCost);
+
+        var openList = new PriorityQueue<T>(compareFunc);
+        var closedList = new HashSet<T>();
+        openList.Enqueue(startNode);
 
         while (openList.Count > 0)
         {
-            NodeWrapper current = openList.PriorityDequeue();
-            if (current.Node.Equals(endNode)) return GeneratePath(current);
-            var neighbors = grid.GetNeighbors(current.Node)
-                .Select(n => new NodeWrapper(n)
-                {
-                    ParentNode = current,
-                    GCost = current.GCost + grid.GetDistance(current.Node, n),
-                    HCost = grid.GetDistance(n, endNode)
-                });
-            foreach (var neighbor in neighbors)
+            T current = openList.PriorityDequeue();
+            closedList.Add(current);
+
+            if (current.Equals(endNode)) return GeneratePath(current, nodeProps);
+
+            foreach (var neighbor in grid.GetNeighbors(current))
             {
                 if (closedList.Contains(neighbor) ||
-                    !grid.CanMoveBetween(current.Node, neighbor.Node))
+                    !grid.CanMoveBetween(current, neighbor))
                 {
                     continue;
                 }
-
+                int newGCost = nodeProps.GetProps(current).GCost +
+                    grid.GetDistance(current, neighbor);
+                var neighborProps = nodeProps.GetProps(neighbor);
+                if (newGCost < neighborProps.GCost || !openList.Contains(neighbor))
+                {
+                    neighborProps.GCost = newGCost;
+                    neighborProps.ParentNode = current;
+                    if (!openList.Contains(neighbor))
+                    {
+                        neighborProps.HCost = grid.GetDistance(neighbor, endNode);
+                        openList.Enqueue(neighbor);
+                    }
+                }
             }
         }
         return null; // no path found
     }
 
-    private IReadOnlyList<T> GeneratePath(NodeWrapper endNode)
+    private IReadOnlyList<T> GeneratePath(T endNode, NodePropertiesMap nodeProps)
     {
+        Debug.Log("Generating path");
         List<T> path = new List<T>();
-        NodeWrapper currentNode = endNode;
-        while (currentNode.ParentNode != null)
+        T currentNode = endNode;
+        while (currentNode != null)
         {
-            path.Add(currentNode.Node);
-            currentNode = currentNode.ParentNode;
+            path.Add(currentNode);
+            currentNode = nodeProps.GetProps(currentNode).ParentNode;
         }
+        path.Reverse();
         return path;
     }
 
-    private class NodeWrapper
+    private class NodePropertiesMap
     {
-        public T Node { get; private set; }
-        public NodeWrapper ParentNode { get; set; }
+        private readonly Dictionary<T, AStarProperties<T>> nodeProps =
+            new Dictionary<T, AStarProperties<T>>();
 
-        public int? GCost { get; set; }
-        public int? HCost { get; set; }
-        public int? FCost => GCost.HasValue && HCost.HasValue ?
-            GCost + HCost : null;
-
-        public NodeWrapper(T node)
+        public AStarProperties<T> GetProps(T node)
         {
-            Node = node;
+            if (nodeProps.TryGetValue(node, out AStarProperties<T> props))
+            {
+                return props;
+            }
+            else
+            {
+                var newProps = new AStarProperties<T>();
+                nodeProps.Add(node, newProps);
+                return newProps;
+            }
         }
     }
 }
